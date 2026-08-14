@@ -15,7 +15,7 @@ List<int> bannedUsers = [];
 const String dbUrl = 'https://warshti-9911e-default-rtdb.firebaseio.com/';
 
 // 🔴 ضع مُعرّف قناتك هنا (مع علامة @) 🔴
-const String myChannel = '@warshti_iq'; 
+const String myChannel = '@warshtii'; 
 
 void saveUserToFirebase(int chatId) async {
   try {
