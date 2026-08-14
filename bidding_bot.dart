@@ -32,7 +32,8 @@ void saveUserToFirebase(int chatId) async {
 // دالة فحص الاشتراك الإجباري
 Future<bool> checkUserSubscription(TeleDart teledart, int chatId, String channelUsername) async {
   try {
-    var chatMember = await teledart.telegram.getChatMember(channelUsername, chatId);
+    // تم تصحيح الخطأ البرمجي هنا (إزالة .telegram)
+    var chatMember = await teledart.getChatMember(channelUsername, chatId);
     String status = chatMember.status;
     if (status == 'member' || status == 'administrator' || status == 'creator') {
       return true;
@@ -161,7 +162,89 @@ void main() async {
   teledart.onMessage(entityType: '*').listen((message) {
     final chatId = message.chat.id;
     final text = message.text ?? '';
+    
     if (bannedUsers.contains(chatId)) return;
+
+    // --- أوامر الإدمن ---
+    if (chatId == adminId) {
+      if (text.startsWith('/ban ')) {
+        try {
+          int targetId = int.parse(text.split(' ')[1]);
+          if (!bannedUsers.contains(targetId)) {
+            bannedUsers.add(targetId);
+            teledart.sendMessage(chatId, '✅ تم حظر المستخدم ($targetId) بنجاح.');
+            teledart.sendMessage(targetId, '⛔️ لقد تم حظرك من استخدام البوت بسبب مخالفة الشروط.').catchError((e) {});
+          }
+        } catch (e) {
+          teledart.sendMessage(chatId, '⚠️ خطأ في الأمر. الاستخدام الصحيح: /ban 123456');
+        }
+        return;
+      }
+      if (text.startsWith('/unban ')) {
+        try {
+          int targetId = int.parse(text.split(' ')[1]);
+          bannedUsers.remove(targetId);
+          teledart.sendMessage(chatId, '✅ تم فك الحظر عن المستخدم ($targetId).');
+          teledart.sendMessage(targetId, '🎉 تم فك الحظر عنك، يمكنك استخدام البوت الآن.').catchError((e) {});
+        } catch (e) {
+          teledart.sendMessage(chatId, '⚠️ خطأ في الأمر.');
+        }
+        return;
+      }
+
+      // نظام الإحصائيات مع الرمز السري
+      if (text == '/stats' || text == 'الاحصائيات') {
+        userStates[chatId] = 'ask_stats_password';
+        teledart.sendMessage(chatId, '🔒 *يرجى إدخال الرمز السري لعرض الإحصائيات:*', parseMode: 'Markdown');
+        return;
+      }
+      
+      if (userStates[chatId] == 'ask_stats_password') {
+        if (text == '1242009') {
+          userStates[chatId] = ''; // تصفير الحالة
+          
+          int techCount = 0;
+          int customerCount = 0;
+          int karbalaTech = 0;
+          int baghdadTech = 0;
+          int karbalaCustomer = 0;
+          int baghdadCustomer = 0;
+          
+          usersData.forEach((id, data) {
+            String gov = data['gov'] ?? '';
+            if (data['role'] == 'role_technician') {
+              techCount++;
+              if (gov == 'كربلاء') karbalaTech++;
+              if (gov == 'بغداد') baghdadTech++;
+            }
+            if (data['role'] == 'role_customer') {
+              customerCount++;
+              if (gov == 'كربلاء') karbalaCustomer++;
+              if (gov == 'بغداد') baghdadCustomer++;
+            }
+          });
+
+          teledart.sendMessage(chatId, '''
+📊 *إحصائيات منصة ورشتي:*
+
+👨‍🔧 *الفنيين (المجموع: `$techCount`):*
+ 🔹 كربلاء: `$karbalaTech` فني
+ 🔹 بغداد: `$baghdadTech` فني
+
+👤 *الزبائن (المجموع: `$customerCount`):*
+ 🔹 كربلاء: `$karbalaCustomer` زبون
+ 🔹 بغداد: `$baghdadCustomer` زبون
+
+👥 *المجموع الكلي للمستخدمين:* `${usersData.length}`
+''', parseMode: 'Markdown');
+        } else {
+          userStates[chatId] = ''; // تصفير الحالة
+          teledart.sendMessage(chatId, '❌ الرمز خاطئ! تم إلغاء العملية.');
+        }
+        return;
+      }
+    }
+    // --- نهاية أوامر الإدمن ---
 
     if (text == 'الدعم الفني 📞') {
       teledart.sendMessage(chatId, '''
@@ -178,52 +261,111 @@ void main() async {
     if (text == 'حسابي 👤') {
       var data = usersData[chatId];
       if (data != null && data['name'] != null) {
+        String roleStr = data['role'] == 'role_customer' ? 'زبون 👤' : 'فني 🛠️';
         teledart.sendMessage(chatId, '''
 🪪 *معلومات حسابك:*
 
+🔹 نوع الحساب: $roleStr
 🔹 الاسم: `${data['name']}`
 🔹 المحافظة: `${data['gov']}`
 🔹 الهاتف: `${data['phone']}`
-🔹 القسم: `${data['category']}`
+🔹 القسم: `${data['category'] ?? "لم يحدد"}`
 
 🆔 رقمك التعريفي: `${chatId}`
 ''', parseMode: 'Markdown');
       } else {
-        teledart.sendMessage(chatId, '⚠️ لم تكمل تسجيل معلوماتك.\n🆔 رقمك التعريفي: `${chatId}`', parseMode: 'Markdown');
+        teledart.sendMessage(chatId, '⚠️ أنت لم تقم بتسجيل معلومات حسابك بالكامل بعد.\n🆔 رقمك التعريفي: `${chatId}`', parseMode: 'Markdown');
       }
       return;
     }
 
+    if (text == 'تعديل حسابي ⚙️') {
+      if (usersData.containsKey(chatId) && usersData[chatId]!['role'] != null) {
+        userStates[chatId] = 'ask_name';
+        teledart.sendMessage(chatId, '🔄 *تم تفعيل وضع تعديل الحساب*\n📝 يرجى كتابة اسمك من جديد:', parseMode: 'Markdown');
+      } else {
+        teledart.sendMessage(chatId, '⚠️ أنت لم تقم بإنشاء حساب بعد لتتمكن من تعديله.');
+      }
+      return;
+    }
+
+    if (text.startsWith('/') || text == 'القائمة الرئيسية 🏠') return;
+
     if (userStates[chatId] == 'ask_name') {
       usersData[chatId]!['name'] = text;
+      saveUserToFirebase(chatId); 
       userStates[chatId] = 'ask_gov';
-      teledart.sendMessage(chatId, '📍 *الخطوة 2:* اختر محافظتك:', replyMarkup: getGovMarkup(), parseMode: 'Markdown');
+      var govMarkup = InlineKeyboardMarkup(inlineKeyboard: [
+        [InlineKeyboardButton(text: 'بغداد', callbackData: 'gov_بغداد'), InlineKeyboardButton(text: 'البصرة', callbackData: 'gov_البصرة'), InlineKeyboardButton(text: 'نينوى', callbackData: 'gov_نينوى')],
+        [InlineKeyboardButton(text: 'النجف', callbackData: 'gov_النجف'), InlineKeyboardButton(text: 'كربلاء', callbackData: 'gov_كربلاء'), InlineKeyboardButton(text: 'بابل', callbackData: 'gov_بابل')],
+        [InlineKeyboardButton(text: 'ذي قار', callbackData: 'gov_ذي قار'), InlineKeyboardButton(text: 'ميسان', callbackData: 'gov_ميسان'), InlineKeyboardButton(text: 'واسط', callbackData: 'gov_واسط')],
+        [InlineKeyboardButton(text: 'المثنى', callbackData: 'gov_المثنى'), InlineKeyboardButton(text: 'الديوانية', callbackData: 'gov_الديوانية'), InlineKeyboardButton(text: 'كركوك', callbackData: 'gov_كركوك')],
+        [InlineKeyboardButton(text: 'الأنبار', callbackData: 'gov_الأنبار'), InlineKeyboardButton(text: 'ديالى', callbackData: 'gov_ديالى'), InlineKeyboardButton(text: 'صلاح الدين', callbackData: 'gov_صلاح الدين')],
+        [InlineKeyboardButton(text: 'أربيل', callbackData: 'gov_أربيل'), InlineKeyboardButton(text: 'السليمانية', callbackData: 'gov_السليمانية'), InlineKeyboardButton(text: 'دهوك', callbackData: 'gov_دهوك')],
+      ]);
+      teledart.sendMessage(chatId, 'عاشت الأسامي! ✨\n\n📍 *الخطوة 2:* اختر محافظتك من القائمة أدناه:', replyMarkup: govMarkup, parseMode: 'Markdown');
+    }
+    else if (userStates[chatId] == 'ask_gov') {
+      teledart.sendMessage(chatId, '⚠️ يرجى اختيار المحافظة من الأزرار الشفافة في الأعلى 👆');
     }
     else if (userStates[chatId] == 'ask_phone') {
       usersData[chatId]!['phone'] = text;
       saveUserToFirebase(chatId); 
       userStates[chatId] = 'ask_category';
-      teledart.sendMessage(chatId, '🗂️ *الخطوة 4:* اختر القسم المناسب:', replyMarkup: getCategoriesMarkup(), parseMode: 'Markdown');
+      teledart.sendMessage(chatId, '🗂️ *الخطوة 4:* اختر القسم المناسب لك:', replyMarkup: getCategoriesMarkup(), parseMode: 'Markdown');
+    }
+    else if (userStates[chatId] == 'ask_problem') {
+      String cat = usersData[chatId]!['category'];
+      String gov = usersData[chatId]!['gov']; 
+      
+      activeRequests[chatId] = true;
+      var acceptMarkup = InlineKeyboardMarkup(inlineKeyboard: [
+        [InlineKeyboardButton(text: 'قبول الطلب وتقديم خدمة ✅', callbackData: 'accept_$chatId')] 
+      ]);
+
+      int techsFound = 0;
+      usersData.forEach((techId, data) {
+        if (data['role'] == 'role_technician' && data['category'] == cat && data['gov'] == gov) {
+          techsFound++;
+          teledart.sendMessage(techId, '🚨 *طلب صيانة جديد في منطقتك!* 🚨\n\n📍 المحافظة: $gov\n⚠️ *المشكلة:* $text\n\n👇 إذا كنت متاحاً، اضغط على قبول الطلب:', replyMarkup: acceptMarkup, parseMode: 'Markdown');
+        }
+      });
+
+      if (techsFound > 0) {
+        teledart.sendMessage(chatId, '✅ *تم إرسال طلبك للفنيين بنجاح!*\n\n⏳ تم إرسال الطلب إلى ($techsFound) فني في محافظة ($gov). يرجى الانتظار...', parseMode: 'Markdown');
+        userStates[chatId] = 'done'; 
+      } else {
+        teledart.sendMessage(chatId, '⚠️ عذراً، لا يوجد فنيين مسجلين حالياً في قسم ($cat) داخل محافظة ($gov).\n\nسنقوم بحفظ طلبك، يرجى المحاولة في وقت لاحق.');
+        userStates[chatId] = 'done'; 
+      }
     }
   });
 }
 
 InlineKeyboardMarkup getCategoriesMarkup() {
   return InlineKeyboardMarkup(inlineKeyboard: [
-    [InlineKeyboardButton(text: '💻 حاسبات', callbackData: 'cat_tech'), InlineKeyboardButton(text: '⚡ كهربائيات', callbackData: 'cat_elec')],
-    [InlineKeyboardButton(text: '🖨️ طابعات', callbackData: 'cat_print'), InlineKeyboardButton(text: '❄️ تبريد', callbackData: 'cat_ac')],
-  ]);
-}
-
-InlineKeyboardMarkup getGovMarkup() {
-  return InlineKeyboardMarkup(inlineKeyboard: [
-    [InlineKeyboardButton(text: 'بغداد', callbackData: 'gov_بغداد'), InlineKeyboardButton(text: 'كربلاء', callbackData: 'gov_كربلاء')],
+    [InlineKeyboardButton(text: '💻 حاسبات وموبايل', callbackData: 'cat_tech'), InlineKeyboardButton(text: '⚡ كهربائيات', callbackData: 'cat_elec')],
+    [InlineKeyboardButton(text: '🖨️ طابعات واستنساخ', callbackData: 'cat_print'), InlineKeyboardButton(text: '❄️ تبريد وتكييف', callbackData: 'cat_ac')],
+    [InlineKeyboardButton(text: '🚰 سباكة وتأسيس', callbackData: 'cat_plumb'), InlineKeyboardButton(text: '🔨 نجارة وحدادة', callbackData: 'cat_wood')],
+    [InlineKeyboardButton(text: '🛠️ صيانة عامة / أخرى', callbackData: 'cat_other')]
   ]);
 }
 
 void sendStartMenu(TeleDart teledart, int chatId) {
-  var bottomKeyboard = ReplyKeyboardMarkup(keyboard: [[KeyboardButton(text: 'القائمة الرئيسية 🏠')], [KeyboardButton(text: 'حسابي 👤')], [KeyboardButton(text: 'الدعم الفني 📞')]], resizeKeyboard: true, isPersistent: true);
-  var startMarkup = InlineKeyboardMarkup(inlineKeyboard: [[InlineKeyboardButton(text: 'زبون 👤', callbackData: 'role_customer'), InlineKeyboardButton(text: 'فني 🛠️', callbackData: 'role_technician')]]);
-  teledart.sendMessage(chatId, '🌟 *أهلاً بك في منصة ورشتي* 🌟', replyMarkup: bottomKeyboard);
-  teledart.sendMessage(chatId, 'اختر نوع حسابك للبدء:', replyMarkup: startMarkup, parseMode: 'Markdown');
+  userStates[chatId] = 'start';
+  var bottomKeyboard = ReplyKeyboardMarkup(
+    keyboard: [
+      [KeyboardButton(text: 'القائمة الرئيسية 🏠')],
+      [KeyboardButton(text: 'حسابي 👤'), KeyboardButton(text: 'تعديل حسابي ⚙️')],
+      [KeyboardButton(text: 'الدعم الفني 📞')]
+    ],
+    resizeKeyboard: true,
+    isPersistent: true,
+  );
+  var startMarkup = InlineKeyboardMarkup(inlineKeyboard: [
+    [InlineKeyboardButton(text: 'أنا محتاج صيانة (زبون) 👤', callbackData: 'role_customer')],
+    [InlineKeyboardButton(text: 'أنا فني (أقدم خدمة) 🛠️', callbackData: 'role_technician')]
+  ]);
+  teledart.sendMessage(chatId, 'تم تفعيل أزرار القائمة السفلية 👇', replyMarkup: bottomKeyboard);
+  teledart.sendMessage(chatId, '🌟 *أهلاً بك في منصة ورشتي* 🌟\n\nالمنصة الأولى لربط الزبائن بأفضل الفنيين 🇮🇶\nـــــــــــــــــــــــــــــــــــــــــــــــــ\n👇 يرجى تحديد نوع حسابك للبدء:', replyMarkup: startMarkup, parseMode: 'Markdown');
 }
