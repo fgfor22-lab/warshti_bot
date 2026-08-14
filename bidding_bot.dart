@@ -15,9 +15,8 @@ List<int> bannedUsers = [];
 const String dbUrl = 'https://warshti-9911e-default-rtdb.firebaseio.com/';
 
 // 🔴 ضع مُعرّف قناتك هنا (مع علامة @) 🔴
-const String myChannel = '@warshtii'; 
+const String myChannel = '@warshti_iq'; 
 
-// دالة الحفظ السريع
 void saveUserToFirebase(int chatId) async {
   try {
     if (usersData.containsKey(chatId)) {
@@ -29,10 +28,8 @@ void saveUserToFirebase(int chatId) async {
   }
 }
 
-// دالة فحص الاشتراك الإجباري
 Future<bool> checkUserSubscription(TeleDart teledart, int chatId, String channelUsername) async {
   try {
-    // تم تصحيح الخطأ البرمجي هنا (إزالة .telegram)
     var chatMember = await teledart.getChatMember(channelUsername, chatId);
     String status = chatMember.status;
     if (status == 'member' || status == 'administrator' || status == 'creator') {
@@ -154,8 +151,36 @@ void main() async {
         userStates[chatId] = 'ask_problem'; 
         teledart.sendMessage(chatId, '✍️ *الخطوة الأخيرة:* اكتب مشكلتك أو العطل بالتفصيل:', parseMode: 'Markdown');
       } else {
-        teledart.sendMessage(chatId, '🎉 *تم تسجيلك كفني بنجاح!*', parseMode: 'Markdown');
+        teledart.sendMessage(chatId, '🎉 *تم تسجيلك كفني بنجاح!*\nأنت الآن جاهز لاستقبال الطلبات في منطقتك.', parseMode: 'Markdown');
       }
+    }
+    // 👇 تم إصلاح مشكلة زر القبول والرفض هنا 👇
+    else if (data.startsWith('accept_')) {
+      int customerId = int.parse(data.split('_')[1]); 
+      if (activeRequests[customerId] == true) {
+        var techData = usersData[chatId]!;
+        var agreeMarkup = InlineKeyboardMarkup(inlineKeyboard: [
+          [InlineKeyboardButton(text: 'تم الاتفاق ✅', callbackData: 'agree_$chatId')], 
+          [InlineKeyboardButton(text: 'رفض الفني ❌', callbackData: 'decline_$chatId')]
+        ]);
+        teledart.sendMessage(customerId, '🔔 *عرض صيانة جديد!*\n\n👨‍🔧 الفني: ${techData['name']}\n📞 رقم الهاتف: `${techData['phone']}`\n\nيرجى التواصل معه، هل تم الاتفاق؟', replyMarkup: agreeMarkup, parseMode: 'Markdown');
+        teledart.sendMessage(chatId, '✅ تم إرسال موافقتك للزبون، بانتظار رده...');
+      } else {
+        teledart.answerCallbackQuery(callbackQuery.id, text: '⚠️ عذراً، هذا الطلب تم الاتفاق عليه أو إغلاقه.', showAlert: true).catchError((e){});
+      }
+    }
+    else if (data.startsWith('agree_')) {
+      int techId = int.parse(data.split('_')[1]); 
+      activeRequests[chatId] = false; 
+      teledart.deleteMessage(chatId, messageId).catchError((e) {}); 
+      teledart.sendMessage(chatId, '🤝 *تم تأكيد الاتفاق!*\nتم إغلاق الطلب ولن يصل لفنيين آخرين.', parseMode: 'Markdown');
+      teledart.sendMessage(techId, '🎉 *مبروك!*\nالزبون وافق على عرضك وتم الاتفاق.', parseMode: 'Markdown');
+    }
+    else if (data.startsWith('decline_')) {
+      int techId = int.parse(data.split('_')[1]); 
+      teledart.deleteMessage(chatId, messageId).catchError((e) {}); 
+      teledart.sendMessage(chatId, '❌ تم رفض الفني، طلبك لا يزال متاحاً للفنيين الآخرين.');
+      teledart.sendMessage(techId, 'عذراً، الزبون لم يوافق على العرض. حظاً أوفر في الطلبات القادمة! 🌹');
     }
   });
 
@@ -165,34 +190,13 @@ void main() async {
     
     if (bannedUsers.contains(chatId)) return;
 
-    // --- أوامر الإدمن ---
-    if (chatId == adminId) {
-      if (text.startsWith('/ban ')) {
-        try {
-          int targetId = int.parse(text.split(' ')[1]);
-          if (!bannedUsers.contains(targetId)) {
-            bannedUsers.add(targetId);
-            teledart.sendMessage(chatId, '✅ تم حظر المستخدم ($targetId) بنجاح.');
-            teledart.sendMessage(targetId, '⛔️ لقد تم حظرك من استخدام البوت بسبب مخالفة الشروط.').catchError((e) {});
-          }
-        } catch (e) {
-          teledart.sendMessage(chatId, '⚠️ خطأ في الأمر. الاستخدام الصحيح: /ban 123456');
-        }
-        return;
-      }
-      if (text.startsWith('/unban ')) {
-        try {
-          int targetId = int.parse(text.split(' ')[1]);
-          bannedUsers.remove(targetId);
-          teledart.sendMessage(chatId, '✅ تم فك الحظر عن المستخدم ($targetId).');
-          teledart.sendMessage(targetId, '🎉 تم فك الحظر عنك، يمكنك استخدام البوت الآن.').catchError((e) {});
-        } catch (e) {
-          teledart.sendMessage(chatId, '⚠️ خطأ في الأمر.');
-        }
-        return;
-      }
+    // 👇 تم حل مشكلة القائمة الرئيسية هنا 👇
+    if (text == 'القائمة الرئيسية 🏠') {
+      sendStartMenu(teledart, chatId);
+      return;
+    }
 
-      // نظام الإحصائيات مع الرمز السري
+    if (chatId == adminId) {
       if (text == '/stats' || text == 'الاحصائيات') {
         userStates[chatId] = 'ask_stats_password';
         teledart.sendMessage(chatId, '🔒 *يرجى إدخال الرمز السري لعرض الإحصائيات:*', parseMode: 'Markdown');
@@ -201,14 +205,8 @@ void main() async {
       
       if (userStates[chatId] == 'ask_stats_password') {
         if (text == '1242009') {
-          userStates[chatId] = ''; // تصفير الحالة
-          
-          int techCount = 0;
-          int customerCount = 0;
-          int karbalaTech = 0;
-          int baghdadTech = 0;
-          int karbalaCustomer = 0;
-          int baghdadCustomer = 0;
+          userStates[chatId] = '';
+          int techCount = 0, customerCount = 0, karbalaTech = 0, baghdadTech = 0, karbalaCustomer = 0, baghdadCustomer = 0;
           
           usersData.forEach((id, data) {
             String gov = data['gov'] ?? '';
@@ -238,13 +236,12 @@ void main() async {
 👥 *المجموع الكلي للمستخدمين:* `${usersData.length}`
 ''', parseMode: 'Markdown');
         } else {
-          userStates[chatId] = ''; // تصفير الحالة
+          userStates[chatId] = '';
           teledart.sendMessage(chatId, '❌ الرمز خاطئ! تم إلغاء العملية.');
         }
         return;
       }
     }
-    // --- نهاية أوامر الإدمن ---
 
     if (text == 'الدعم الفني 📞') {
       teledart.sendMessage(chatId, '''
@@ -289,7 +286,7 @@ void main() async {
       return;
     }
 
-    if (text.startsWith('/') || text == 'القائمة الرئيسية 🏠') return;
+    if (text.startsWith('/')) return;
 
     if (userStates[chatId] == 'ask_name') {
       usersData[chatId]!['name'] = text;
@@ -356,7 +353,7 @@ void sendStartMenu(TeleDart teledart, int chatId) {
   var bottomKeyboard = ReplyKeyboardMarkup(
     keyboard: [
       [KeyboardButton(text: 'القائمة الرئيسية 🏠')],
-      [KeyboardButton(text: 'حسابي 👤'), KeyboardButton(text: 'تعديل حسابي ⚙️')],
+      [KeyboardButton(text: 'تعديل حسابي ⚙️'), KeyboardButton(text: 'حسابي 👤')],
       [KeyboardButton(text: 'الدعم الفني 📞')]
     ],
     resizeKeyboard: true,
