@@ -1,5 +1,5 @@
-FROM google/dart:latest
+FROM dart:stable
 WORKDIR /app
 COPY . .
 RUN dart pub get
-CMD ["dart", "bin/bidding_bot.dart"]
+CMD ["dart", "bidding_bot.dart"]
